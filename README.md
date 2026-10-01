@@ -43,6 +43,12 @@ Each chapter contains its own `build` directory and the layers required for that
 stage. The advanced snapshots are cumulative, so earlier targets remain
 available. Chapter 21 is the summary; it needs no separate project snapshot.
 
+If you type the early chapters into your own `bbTutorial` directory, use
+the corresponding snapshot as an end-of-chapter checkpoint. The guide's
+[comparison workflow](A-Practical-Guide-to-BitBake-2026.md#93-compare-your-project-with-the-completed-snapshot)
+compares only layers and configuration, not generated outputs. Chapters
+10-20 each begin with a change summary for students continuing their own project.
+
 ## Using the Examples
 
 First install BitBake 2.18.0 as explained in the tutorial.
@@ -57,12 +63,24 @@ bitbake first
 
 Always run BitBake commands from the chapter’s `build` directory.
 
-The optional `bbenv.include` file can configure the current terminal when BitBake is stored elsewhere:
+From Chapter 8 onward, this standalone project's local settings are in
+`build/local.conf`, not Yocto/OE's usual `build/conf/local.conf`. Our explicit
+`require local.conf` directive determines that location; see
+[Section 8.3.1](A-Practical-Guide-to-BitBake-2026.md#831-add-a-localconf-for-inclusion).
+
+The optional [bbenv.include](bbenv.include) helper, introduced in
+[Chapter 3](A-Practical-Guide-to-BitBake-2026.md#31-the-installation-of-bitbake),
+can configure the current terminal when BitBake is stored elsewhere.
+Run this from the tutorial repository root, replacing the example path:
 
 ```bash
 export BITBAKE_ROOT_DIR=/path/to/bitbake-2.18.0
-source bbenv.include
+source ./bbenv.include
 ```
+
+Source the helper rather than executing it, and repeat the setup in each
+new terminal. It configures search paths; you still need to enter the chosen
+chapter's build directory.
 
 ## Host prerequisites and verification
 

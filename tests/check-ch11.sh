@@ -5,7 +5,7 @@ config=$(mktemp --suffix=.conf)
 trap 'rm -f "$config"' EXIT
 bitbake -g task-order
 grep -q '"task-order.do_middle" -> "task-source.do_prepare"' task-depends.dot
-bitbake task-order
+bitbake -C begin task-order
 test "$(cat tmp/work/task-order-1.0-r0/order.txt)" = "$(printf 'begin\nmiddle\nfinish')"
 test "$(cat tmp/work/task-source-1.0-r0/ready.txt)" = source-ready
 printf 'DIRECT_DEPENDS = ""\n' > "$config"

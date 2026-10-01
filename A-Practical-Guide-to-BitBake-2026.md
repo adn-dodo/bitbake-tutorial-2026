@@ -41,9 +41,19 @@ or internal API; the versioned manual remains the reference for those details.
 
 The tutorial builds the smallest possible project and extends it step by step, to show and explain how BitBake actually works.
 
+No Yocto or BitBake knowledge is assumed. You should be comfortable opening
+a Linux terminal, changing directories with `cd`, editing a text file, and
+reading command output. The examples introduce small shell and Python
+functions as they are needed; you do not need to write a build system first.
+
+The learning path is: print a message, reuse tasks, combine layers, process
+source files, compile a tiny host program, then investigate dependencies and
+rebuild decisions. The final result is a set of small standalone experiments,
+not a Linux image to boot on a board.
+
 ### 1.3 Acknowledgments
 
-The learning sequence is inspired by Harald Achitz’s original “A Practical Guide to BitBake.” Issues for the accompanying example repository can be reported at the [BitBake guide issue tracker](https://bitbucket.org/a4z/bitbakeguide/issues).
+The learning sequence is inspired by Harald Achitz’s original “A Practical Guide to BitBake.” Issues for this edition's accompanying example repository can be reported at the [repository issue tracker](https://github.com/RedaMaher/bitbake-tutorial-2026/issues).
 
 
 ## 2. BitBake
@@ -58,9 +68,50 @@ Configuration, tasks, and recipes are written in BitBake’s own small language 
 
 BitBake was built for building software, so it has features suited to that: it can resolve dependencies and put tasks into the right order. Building software packages also tends to repeat the same kinds of steps — downloading and extracting source, running configure, running make, writing a log message — and BitBake gives you a way to abstract, encapsulate, and reuse that work in a configurable way.
 
+### 2.2 Yocto, OpenEmbedded, Poky, and BitBake
+
+These names refer to different parts of the ecosystem, not four interchangeable
+build commands:
+
+| Name | Role | Needed for this tutorial? |
+|---|---|---|
+| Yocto Project | The wider project providing tools, documentation, and practices for creating custom Linux systems. It is not one ready-made Linux distribution. | No checkout is needed; we use its BitBake manual. |
+| OpenEmbedded (OE) | The community and build framework whose metadata describes how to build software and Linux systems. | No OE layers are used here. |
+| OpenEmbedded-Core (OE-Core) | A shared core of recipes, classes, and configuration, including much of the toolchain, packaging, and image-building policy. | No; we write a few small teaching classes instead. |
+| Poky | A reference integration associated with Yocto, combining BitBake, OE-Core, and reference distribution metadata. Many Yocto guides start from a Poky checkout. | No; do not follow a Poky setup step for this standalone guide. |
+| BitBake | The engine that reads metadata, resolves dependencies, and schedules tasks. | Yes; Chapter 3 installs it by itself. |
+
+Think of BitBake as the engine and metadata as its instructions. BitBake
+does not infer "compile a program" from a recipe filename: a recipe or class
+must define and connect the tasks. In a full OE build, existing classes supply
+much of that behavior. Here we keep it visible by defining the tasks ourselves.
+
+For example, `bitbake first` will select the recipe named `first` and request
+its default task, `do_build`. Our first version of that task only prints a
+message. Later, `bitbake hello-host` will follow a task chain to fetch, patch,
+compile, and stage a tiny program. Neither target creates a Linux image.
+
+### 2.3 A small glossary
+
+Use this as a reference rather than a list to memorize. Each concept gets a
+working example later.
+
+| Term | Meaning here | First example |
+|---|---|---|
+| Metadata | The configuration, variable assignments, and task definitions that BitBake reads. | [Chapter 4](#4-create-a-project) |
+| Recipe | A `.bb` file describing a buildable item, such as `first_0.1.bb`. | [Chapter 5](#5-the-first-recipe) |
+| Target | The name requested on a command line, such as `first`; it usually selects a recipe, though aliases also exist. | [Chapter 5](#5-the-first-recipe) |
+| Task | A registered unit of shell or Python work, such as `do_build`. A function is not automatically a scheduled task. | [Chapters 5-6](#5-the-first-recipe) |
+| Class | A `.bbclass` file providing metadata that recipes can reuse with `inherit`. | [Chapter 6](#6-classes-and-functions) |
+| Layer | A directory grouping related metadata, conventionally named `meta-...`. Layers are not sequential build stages. | [Chapter 7](#7-bitbake-layers) |
+| Datastore | BitBake's collection of variables and flags for a particular configuration, recipe, or task; Python accesses it as `d`. | [Chapters 6 and 9](#6-classes-and-functions) |
+| Dependency | A prerequisite relationship; the scheduler must complete the prerequisite before the dependent task. | [Chapter 11](docs/ch11.md) |
+| Stamp | A record of successful task execution used to decide whether a task is current, not a copy of its output. | [Chapter 6](#65-why-a-requested-task-can-be-skipped) |
+| Signature | A hash representing a task's code and tracked inputs, used by the configured signature policy to detect changes. | [Chapter 16](docs/ch16.md) |
+
 ## 3. Setup BitBake
 
-BitBake is available at [github.com/openembedded/bitbake](https://github.com/openembedded/bitbake). This tutorial was tested with Python 3.14.4 and BitBake 2.18.0 on Ubuntu 26.04 — if you hit a problem with a different combination, please report it (see 1.4). When BitBake is used inside a full Yocto/OpenEmbedded build it is normally bundled with the layers and started through the project’s own setup script; here we install the standalone `bitbake-2.18.0` release directly, so the engine underneath stays visible.
+BitBake is available at [github.com/openembedded/bitbake](https://github.com/openembedded/bitbake). This tutorial was tested with Python 3.14.4 and BitBake 2.18.0 on Ubuntu 26.04 — if you hit a problem with a different combination, please report it at the [repository issue tracker](https://github.com/RedaMaher/bitbake-tutorial-2026/issues). When BitBake is used inside a full Yocto/OpenEmbedded build it is normally bundled with the layers and started through the project’s own setup script; here we install the standalone `bitbake-2.18.0` release directly, so the engine underneath stays visible.
 
 Download the tagged [2.18.0 release](https://github.com/openembedded/bitbake/archive/refs/tags/2.18.0.zip) and extract it.
 
@@ -77,6 +128,23 @@ We can do this by running:
     export PYTHONPATH="/path/to/bitbake-2.18.0/lib:$PYTHONPATH"
 
 These commands configure BitBake for the current terminal session. If you open a new terminal, you must run them again.
+
+If you have this tutorial repository on disk, you can use its
+[bbenv.include](bbenv.include) helper **instead of** the two exports above.
+From the tutorial repository root, set the absolute path to your extracted
+BitBake release and source the helper:
+
+```bash
+export BITBAKE_ROOT_DIR=/path/to/bitbake-2.18.0
+source ./bbenv.include
+```
+
+Replace `/path/to/bitbake-2.18.0` with your real directory. The helper checks
+for `bin` and `lib`, then adds them to `PATH` and `PYTHONPATH`. Source it in
+the terminal where you will run the exercises; `bash bbenv.include` cannot
+configure its parent shell. Without `BITBAKE_ROOT_DIR`, the helper looks for
+a directory named `bitbake` next to itself. It does not download BitBake or
+select a chapter's build directory.
 
 First we check that everything works and BitBake is installed. To do that, run:
 
@@ -185,25 +253,43 @@ In a terminal, change into the build directory we just created — that’s our 
 
 If the setup is correct, BitBake reports:
 
-    Nothing to do. Use 'bitbake world' to build everything,
-    or run 'bitbake --help' for usage information.
+    Nothing to do.  Use 'bitbake world' to build everything, or run 'bitbake --help' for usage information.
+
+BitBake 2.18.0 returns exit status **1** for this no-target invocation.
+Here the message confirms configuration was found; the nonzero status means
+no work was requested, not that a build task failed. If you run these steps
+in a script with `set -e`, handle this expected status rather than treating
+it as a successful build.
 
 Not very useful on its own, but a good start — and a good moment to introduce a useful flag, verbose debug output:
 
     bitbake -vDDD world
 
-The output should look similar to this:
+Representative lines from the output are:
 
-    Loading cache: 100%
+    Loading cache...done.
     Loaded 0 entries from dependency cache.
     DEBUG: collating packages for "world"
     DEBUG: Target list: []
     NOTE: Resolving any missing task queue dependencies
     DEBUG: Resolved 0 extra dependencies
 
-You’ll see a stream of NOTE: and DEBUG: lines. -vDDD enables very detailed output, and world asks BitBake to build every available recipe. Since the project has no recipes yet, there are no build tasks to run; the useful part here is observing how BitBake parses the configuration. We add the first recipe in the next chapter.
+You’ll see a stream of NOTE: and DEBUG: lines. Progress formatting can differ
+between an interactive terminal and redirected output. `-vDDD` enables very
+detailed output, and `world` asks BitBake to build every eligible recipe.
+Since the project has no recipes yet, there are no build tasks to run;
+unlike the no-target invocation, this empty `world` request exits with
+status 0. The useful part here is observing how BitBake parses the
+configuration. We add the first recipe in the next chapter.
 
 Notice that BitBake also created a `tmp` directory alongside `conf/`.
+
+The completed [ch04 snapshot](ch04) is a reference for the project you just
+created, not a second directory that BitBake needs to load. Continue editing
+your own `bbTutorial` through Chapter 9. Each `chNN` snapshot shows the
+expected metadata at the **end** of that chapter;
+[Section 9.3](#93-compare-your-project-with-the-completed-snapshot) shows how
+to compare the finished project without comparing generated build output.
 
 ## 5. The first recipe
 
@@ -211,11 +297,15 @@ BitBake needs recipes before it can do useful work. Check the current recipe lis
 
 
     bitbake -s
-    
-    Recipe Name          Latest Version        Preferred Version
-    ===========          ==============        =================
+
+After the cache/parsing messages, BitBake 2.18.0 prints a table with four columns:
+
+    Recipe Name          Latest Version        Preferred Version       Required Version
+    ===========          ==============        =================       ================
 
 The list is empty — we haven’t created a recipe yet.
+The examples below abbreviate column spacing; compare names and values,
+not the number of spaces.
 
 ### 5.1 The cache location
 
@@ -229,7 +319,7 @@ BitBake finds recipes through `BBFILES`, which we already set in `meta-tutorial/
 
 This means: look inside directories named `recipes-*`, then inside a recipe directory, and load files ending in `.bb`.
 
-5.3 Create the first recipe and task
+### 5.3 Create the first recipe and task
 
 Recipe files follow the pattern `name_version.bb`. Create the directory:
 
@@ -255,8 +345,8 @@ List the recipes and build `first`:
 
 `bitbake -s` now shows:
 
-    Recipe Name          Latest Version        Preferred Version
-    ===========          ==============        =================
+    Recipe Name          Latest Version        Preferred Version       Required Version
+    ===========          ==============        =================       ================
     first                       :0.1-r1
 
 and the build summary should say every attempted task succeeded. The task log is at:
@@ -284,8 +374,6 @@ A `.bbclass` holds reusable metadata, so a task doesn’t have to be copied into
     EXPORT_FUNCTIONS do_build
 
 `EXPORT_FUNCTIONS do_build` exposes `mybuild_do_build` as `do_build` to any recipe that inherits the class.
-
-### 
 
 ### 6.2 Use mybuild with the second recipe
 
@@ -318,8 +406,8 @@ This recipe shows three kinds of reuse: `inherit mybuild` pulls in the class’s
 
 should now show:
 
-    Recipe Name          Latest Version        Preferred Version
-    ===========          ==============        =================
+    Recipe Name          Latest Version        Preferred Version       Required Version
+    ===========          ==============        =================       ================
     first                       :0.1-r1
     second                      :1.0-r1
 
@@ -333,7 +421,23 @@ List a recipe’s tasks with:
     bitbake -c mypatch second
     bitbake world
 
-`bitbake second` runs the default build task and its predecessors; `-c mypatch` runs `do_mypatch` explicitly; `bitbake world` builds every recipe visible to the configuration. Task logs live under `build/tmp/work/<recipe>-<version>-<revision>/temp/`.
+`bitbake second` runs the default build task and its predecessors; `-c mypatch` requests `do_mypatch` explicitly; `bitbake world` builds every recipe visible to the configuration. Task logs live under `build/tmp/work/<recipe>-<version>-<revision>/temp/`.
+
+### 6.5 Why a requested task can be skipped
+
+After `bitbake second`, the explicit `-c mypatch` command normally reports
+`1 didn't need to be rerun`. That is success, not a missing task: a **stamp**
+under `build/tmp/stamps` records that the task completed, so BitBake considers
+it current and reuses the result. The existing `log.do_mypatch` is still the
+evidence of its last execution; a skipped task does not write a new log.
+
+The copied base class marks `do_build[nostamp] = "1"`, so build itself runs
+each time, while `do_mypatch` can stay current. A stamp is not a backup or
+an output-existence check. Do not delete outputs and expect BitBake to notice.
+For now, recognize the skip message; Chapter 11 introduces controlled reruns,
+and [Chapter 16](docs/ch16.md) explains signatures and input changes. The
+minimal configuration used here does not yet enable the hashing policy from
+Chapter 10, so do not assume every metadata edit will invalidate a stamp.
 
 ## 7. BitBake layers
 
@@ -363,6 +467,13 @@ Then add it to `$HOME/bbTutorial/build/conf/bblayers.conf`:
 
     bitbake-layers show-layers
 
+At this exact stage, expect the table header but no layer rows. The
+directories are already listed in `BBLAYERS`, but `show-layers` reports
+registered **layer collections**, which we have not named yet. This is not
+a missing-directory error. Section 7.3 adds those collection names; rerun
+the command afterwards to see both rows. If you start from the completed
+`ch07` snapshot, the names are already configured.
+
 Other useful subcommands: `show-recipes`, `show-cross-depends`, `show-appends`, `flatten`, `show-overlayed`.
 
 ### 7.3 Extending the layer configuration
@@ -382,10 +493,14 @@ Add to `meta-two/conf/layer.conf`:
 
 bitbake-layers show-layers should now list both layer collections with priority 5:
 
-    layer       path                                  priority
-    =============================================================
-    tutorial    /home/user/bbTutorial/meta-tutorial    5
-    two         /home/user/bbTutorial/meta-two         5
+    layer       path                                            priority
+    ===================================================================
+    tutorial    /home/user/bbTutorial/build/../meta-tutorial      5
+    two         /home/user/bbTutorial/build/../meta-two           5
+
+Your absolute prefix and column spacing will differ. The `build/../`
+component comes from our `${TOPDIR}/../meta-...` assignments: `..` means the
+parent directory, so this is the same layer directory, not an extra copy.
 
 At this stage, BitBake can also warn that no .bb files match BBFILE_PATTERN_two. That is expected because meta-two is still empty; Chapter 8 adds its first recipe.
 
@@ -449,6 +564,9 @@ Create the third recipe:
     PR = "r1"
 
     inherit confbuild
+
+In the terminal, build the recipe:
+
     cd "$HOME/bbTutorial/build"
     bitbake third
 
@@ -456,10 +574,18 @@ Both `do_configure` and `do_build` should succeed.
 
 ### 8.2 bbappend files
 
-Update `meta-two/conf/layer.conf` so it also picks up append files:
+Replace the existing `BBFILES` assignment in `meta-two/conf/layer.conf` so it also picks up append files:
 
     BBFILES += "${LAYERDIR}/recipes-*/*/*.bb \
                 ${LAYERDIR}/recipes-*/*/*.bbappend"
+
+Keep this as one continued assignment, replacing the earlier `.bb`-only
+assignment rather than adding a duplicate. The `.bb` pattern remains so
+the layer's own recipes are still discovered; the new pattern also finds
+the `.bbappend` files.
+
+In the terminal, create the append file's directory:
+
     mkdir -p "$HOME/bbTutorial/meta-two/recipes-base/first"
 
 Create `$HOME/bbTutorial/meta-two/recipes-base/first/first_0.1.bbappend`:
@@ -483,10 +609,27 @@ Both directives search relative to `BBPATH`: `include file` parses it if present
 
 #### 8.3.1 Add a local.conf for inclusion
 
+This standalone tutorial deliberately uses `build/local.conf`. A typical
+Yocto/OE build uses `build/conf/local.conf` instead. The difference comes
+from the include path in the project's metadata, not a rule that BitBake
+automatically searches both locations:
+
+| Project | Directive in its configuration | File found through the build directory in `BBPATH` |
+|---|---|---|
+| This tutorial | `require local.conf` | `build/local.conf` |
+| Typical Yocto/OE layout | `include conf/local.conf` | `build/conf/local.conf` |
+
+Keep the tutorial's location for these exercises. Moving the file under
+`build/conf` without changing the directive below would leave the required
+file missing. Later chapter snapshots follow the same tutorial convention.
+
 Add to `meta-tutorial/conf/bitbake.conf`:
 
     require local.conf
     include conf/might_exist.conf
+
+In the terminal, try building the recipe:
+
     cd "$HOME/bbTutorial/build"
     bitbake first
 
@@ -543,6 +686,44 @@ and `log.do_build` should contain
 
     myvar_sh: hello from MYVAR
 
+#### 9.1.3 Inspect a variable before running a task
+
+From the same build directory, ask BitBake for the recipe's parsed
+environment and select the variable you want:
+
+```bash
+bitbake -e myvar | grep '^MYVAR='
+```
+
+Expect:
+
+```text
+MYVAR="hello from MYVAR"
+```
+
+`-e myvar` shows the datastore after configuration, classes, and recipe
+metadata have been read; it does not execute the recipe's build tasks.
+This is different from `echo "$MYVAR"` in your terminal, which reads a
+shell variable rather than BitBake's datastore. The `^` in the `grep`
+pattern matches the start of a line, so you select the final assignment
+rather than every mention of the variable.
+
+To investigate where a value came from, save the full dump:
+
+```bash
+bitbake -e myvar > myvar.env
+```
+
+Open `myvar.env` in your editor and find the final `MYVAR=` assignment.
+The preceding comments show its assignment history and source locations.
+Use this workflow whenever an unexpected value reaches a task. Do not
+source the dump as a shell setup script; it is inspection output.
+Remove it when finished:
+
+```bash
+rm myvar.env
+```
+
 ### 9.2 Local variables
 
 Create `$HOME/bbTutorial/meta-two/classes/varbuild.bbclass`:
@@ -567,12 +748,58 @@ Create `$HOME/bbTutorial/meta-two/recipes-vars/varbuild/varbuild_0.1.bb`:
     BUILDARGS = "my build arguments"
 
     inherit varbuild
+
+In the terminal, build the recipe:
+
     cd "$HOME/bbTutorial/build"
     bitbake varbuild
 
 Its log should contain:
 
     build with args: my build arguments
+
+Inspect the input independently of that task log:
+
+```bash
+bitbake -e varbuild | grep '^BUILDARGS='
+```
+
+Expect `BUILDARGS="my build arguments"`. Here the assignment belongs to the
+`varbuild` recipe; it does not set `BUILDARGS` for every recipe in the layer.
+The `MYVAR` assignment in `local.conf`, by contrast, is available through
+the shared configuration, though an individual recipe can override it.
+
+### 9.3 Compare your project with the completed snapshot
+
+You now have the same set of examples as [ch09](ch09). From the **tutorial
+repository root**, not your project's build directory, compare the layers
+and configuration:
+
+```bash
+diff -ru ch09/meta-tutorial "$HOME/bbTutorial/meta-tutorial"
+diff -ru ch09/meta-two "$HOME/bbTutorial/meta-two"
+diff -u ch09/build/conf/bblayers.conf "$HOME/bbTutorial/build/conf/bblayers.conf"
+diff -u ch09/build/local.conf "$HOME/bbTutorial/build/local.conf"
+```
+
+If you chose another project location, substitute it for `$HOME/bbTutorial`.
+`diff` is read-only: status 0 means identical, 1 means differences were found,
+and a higher status indicates a comparison error such as a missing path.
+With different files, `-` lines are from the snapshot and `+` lines are from
+your project. Review differences rather than automatically replacing your work.
+Harmless whitespace or assignment ordering can differ; focus on missing files,
+values, task definitions, and include paths.
+
+At earlier checkpoints, substitute that chapter's `chNN` path and compare
+only the files and layers introduced so far: `meta-two` appears in Chapter 7
+and `local.conf` in Chapter 8. Do not compare or copy the whole `build`
+directory: it also holds machine-specific logs, caches, outputs, and stamps.
+
+To try the completed example independently, enter `ch09/build` and run
+`bitbake myvar varbuild`. Your own project's outputs remain separate.
+From Chapter 10, the guide uses these completed snapshots for experiments
+and starts each chapter with a list of changes. You may use that list to
+continue extending your own project instead.
 
 ## 10. Overrides, operators, and task flags
 
